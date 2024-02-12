@@ -1,0 +1,73 @@
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense
+import matplotlib.pyplot as plt
+# Load the dataset
+df = pd.read_csv('BTC-USD.csv')
+df = df[['Date', 'Close']]
+
+# Convert 'Date' to datetime
+df['Date'] = pd.to_datetime(df['Date'])
+
+# Set 'Date' as the index
+df.set_index('Date', inplace=True)
+
+# Create lagged features 
+for i in range(1, 6):
+    df[f'Close_lagged_{i}'] = df['Close'].shift(i)
+
+# Drop NaN values
+df.dropna(inplace=True)
+
+# Features and target variable
+X = df.iloc[:, 1:].values  # Use lagged features as input
+y = df['Close'].values
+
+# Normalize numerical features
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+X = scaler_X.fit_transform(X)
+y = scaler_y.fit_transform(y.reshape(-1, 1)).flatten()
+
+# Reshape input for LSTM (samples, time steps, features)
+X = np.reshape(X, (X.shape[0], 1, X.shape[1]))
+
+# Create and train the LSTM model
+model = Sequential()
+model.add(LSTM(50, activation='relu', input_shape=(X.shape[1], X.shape[2])))
+model.add(Dense(1))
+model.compile(optimizer='adam', loss='mse')
+
+model.fit(X, y, epochs=30 , batch_size=16, verbose=2)
+
+# Predictions for the next year
+last_known_date_X = df.iloc[-1, 1:].values.reshape(1, -1)
+last_known_date_X = scaler_X.transform(last_known_date_X)
+last_known_date_X = np.reshape(last_known_date_X, (1, 1, last_known_date_X.shape[1]))
+
+# Predictions for each day in the next year
+next_year_y_pred_scaled = []
+for _ in range(365):
+    next_year_y_pred_scaled.append(model.predict(last_known_date_X)[0, 0])  # Predict for the next day
+    last_known_date_X[0, 0, :-1] = last_known_date_X[0, 0, 1:]  # Shift the lagged features
+    last_known_date_X[0, 0, -1] = next_year_y_pred_scaled[-1]  # Update the last lagged feature
+next_year_y_pred_scaled = np.array(next_year_y_pred_scaled)
+next_year_y_pred = scaler_y.inverse_transform(next_year_y_pred_scaled.reshape(-1, 1)).flatten()
+
+# Generate dates for the next year
+next_year_dates = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=365, freq='D')
+
+# Plot historical data and predictions for the next year
+plt.figure(figsize=(12, 6))
+plt.plot(df.index, df['Close'], label='Historical Data')  # Plot historical data
+plt.plot(next_year_dates, next_year_y_pred, label='Predictions for Next Year', linestyle='--', color='red')  # Plot predictions
+plt.title('LSTM Predictions for the Next Year')
+plt.xlabel('Date')
+plt.ylabel('Close Price')
+plt.legend()
+plt.show() , this code is written for predicting stocks , please give some insights on this code which I can post on linkedin 
